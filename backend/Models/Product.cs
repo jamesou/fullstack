@@ -4,14 +4,25 @@ namespace backend.Models
 {
     public class Product
     {
-        public Guid Id { get; set; } // Unique identifier
-        public string Name { get; set; } // Product name
-        public string SKU { get; set; } // Stock Keeping Unit, unique code
-        public string Description { get; set; } // Product description
-        public decimal Price { get; set; } // Product price
-        public int CurrentStock { get; set; } // Current stock quantity
-        public int MinimumStockLevel { get; set; } // Minimum stock level for warning
-        public DateTime LastUpdated { get; set; } // Last updated time
-        public bool IsActive { get; set; } // Is the product active/available (soft delete)
+        public int Id { get; set; }
+        public required string Name { get; set; }
+        public required string Sku { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public decimal Price { get; set; }
+        public int CurrentStock { get; set; }
+        public int MinimumStockLevel { get; set; }
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+        public bool IsActive { get; set; } = true;
+
+        public bool IsLowStock => CurrentStock <= MinimumStockLevel;
+
+        // Business rules validation
+        public bool IsValid()
+        {
+            return !string.IsNullOrWhiteSpace(Name) &&
+                   !string.IsNullOrWhiteSpace(Sku) &&
+                   Price >= 0 &&
+                   MinimumStockLevel >= 0;
+        }
     }
 }

@@ -1,9 +1,7 @@
-using backend.Models;
 using backend.DTOs;
+using backend.Interfaces;
+using backend.Models;
 using Microsoft.AspNetCore.Mvc;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace backend.Controllers
 {
@@ -11,129 +9,156 @@ namespace backend.Controllers
     [Route("api/[controller]")]
     public class ProductsController : ControllerBase
     {
-        // In-memory product list for demonstration. Replace with database in production.
-        private static readonly List<Product> Products = new();
+        private readonly IProductService _productService;
 
-        [HttpPost]
-        public ActionResult<Product> CreateProduct([FromBody] CreateProductDto dto)
+        public ProductsController(IProductService productService)
         {
-            if (Products.Any(p => p.SKU == dto.SKU))
-                return Conflict(new { message = "SKU must be unique." });
-
-            var product = new Product
-            {
-                Id = Guid.NewGuid(),
-                Name = dto.Name,
-                SKU = dto.SKU,
-                Description = dto.Description ?? string.Empty,
-                Price = dto.Price,
-                CurrentStock = dto.CurrentStock ?? 0,
-                MinimumStockLevel = dto.MinimumStockLevel,
-                LastUpdated = DateTime.UtcNow,
-                IsActive = dto.IsActive
-            };
-            Products.Add(product);
-            return CreatedAtAction(nameof(GetProductById), new { id = product.Id }, product);
+            _productService = productService;
         }
 
         [HttpGet]
-        public ActionResult<IEnumerable<Product>> GetAllProducts(
-            [FromQuery] string? name,
-            [FromQuery] string? sku,
-            [FromQuery] int? minStock,
-            [FromQuery] int? maxStock,
-            [FromQuery] bool? isActive,
-            [FromQuery] string? sortBy,
-            [FromQuery] string? sortOrder)
+        public async Task<ActionResult<IEnumerable<Product>>> GetProducts([FromQuery] ProductFilterDto filters)
         {
-            var query = Products.AsQueryable();
-            if (!string.IsNullOrEmpty(name))
-                query = query.Where(p => p.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrEmpty(sku))
-                query = query.Where(p => p.SKU == sku);
-            if (minStock.HasValue)
-                query = query.Where(p => p.CurrentStock >= minStock);
-            if (maxStock.HasValue)
-                query = query.Where(p => p.CurrentStock <= maxStock);
-            if (isActive.HasValue)
-                query = query.Where(p => p.IsActive == isActive);
-            if (!string.IsNullOrEmpty(sortBy))
+            try
             {
-                bool desc = string.Equals(sortOrder, "desc", StringComparison.OrdinalIgnoreCase);
-                query = sortBy.ToLower() switch
-                {
-                    "name" => desc ? query.OrderByDescending(p => p.Name) : query.OrderBy(p => p.Name),
-                    "currentstock" => desc ? query.OrderByDescending(p => p.CurrentStock) : query.OrderBy(p => p.CurrentStock),
-                    _ => query
-                };
+                var products = await _productService.GetAllProductsAsync(filters);
+                return Ok(products);
             }
-            return Ok(query.ToList());
-        }
-
-        [HttpGet("{id}")]
-        public ActionResult<Product> GetProductById(Guid id)
-        {
-            var product = Products.FirstOrDefault(p => p.Id == id);
-            if (product == null)
-                return NotFound();
-            return Ok(product);
-        }
-
-        [HttpPut("{id}")]
-        public ActionResult<Product> UpdateProduct(Guid id, [FromBody] UpdateProductDto dto)
-        {
-            var product = Products.FirstOrDefault(p => p.Id == id);
-            if (product == null)
-                return NotFound();
-            product.Name = dto.Name;
-            product.Description = dto.Description ?? string.Empty;
-            product.Price = dto.Price;
-            product.MinimumStockLevel = dto.MinimumStockLevel;
-            product.IsActive = dto.IsActive;
-            product.LastUpdated = DateTime.UtcNow;
-            return Ok(product);
-        }
-
-        [HttpDelete("{id}")]
-        public IActionResult DeleteProduct(Guid id)
-        {
-            var product = Products.FirstOrDefault(p => p.Id == id);
-            if (product == null)
-                return NotFound();
-            product.IsActive = false; // Soft delete
-            product.LastUpdated = DateTime.UtcNow;
-            return NoContent();
-        }
-
-        [HttpPost("{id}/add-stock")]
-        public ActionResult<Product> AddStock(Guid id, [FromBody] StockOperationDto dto)
-        {
-            var product = Products.FirstOrDefault(p => p.Id == id);
-            if (product == null)
-                return NotFound();
-            product.CurrentStock += dto.Quantity;
-            product.LastUpdated = DateTime.UtcNow;
-            return Ok(product);
-        }
-
-        [HttpPost("{id}/remove-stock")]
-        public ActionResult<Product> RemoveStock(Guid id, [FromBody] StockOperationDto dto)
-        {
-            var product = Products.FirstOrDefault(p => p.Id == id);
-            if (product == null)
-                return NotFound();
-            if (product.CurrentStock < dto.Quantity)
-                return BadRequest(new { message = "Not enough stock to remove." });
-            product.CurrentStock -= dto.Quantity;
-            product.LastUpdated = DateTime.UtcNow;
-            return Ok(product);
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
         }
 
         [HttpGet("low-stock")]
-        public ActionResult<IEnumerable<Product>> GetLowStockProducts()
+        public async Task<ActionResult<IEnumerable<Product>>> GetLowStockProducts()
         {
-            var lowStock = Products.Where(p => p.CurrentStock < p.MinimumStockLevel).ToList();
-            return Ok(lowStock);
+            try
+            {
+                var products = await _productService.GetLowStockProductsAsync();
+                return Ok(products);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
         }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Product>> GetProduct(int id)
+        {
+            try
+            {
+                var product = await _productService.GetProductByIdAsync(id);
+                return Ok(product);
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<Product>> CreateProduct([FromBody] CreateProductDto dto)
+        {
+            try
+            {
+                var product = new Product
+                {
+                    Name = dto.Name,
+                    Sku = dto.Sku,
+                    Description = dto.Description ?? string.Empty,
+                    Price = dto.Price,
+                    CurrentStock = dto.CurrentStock ?? 0,
+                    MinimumStockLevel = dto.MinimumStockLevel,
+                    IsActive = dto.IsActive
+                };
+
+                var createdProduct = await _productService.CreateProductAsync(product);
+                return CreatedAtAction(nameof(GetProduct), new { id = createdProduct.Id }, createdProduct);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpPut("{id}")]
+        public async Task<ActionResult<Product>> UpdateProduct(int id, [FromBody] UpdateProductDto dto)
+        {
+            try
+            {
+                var product = new Product
+                {
+                    Id = id,
+                    Name = dto.Name,
+                    Description = dto.Description ?? string.Empty,
+                    Price = dto.Price,
+                    MinimumStockLevel = dto.MinimumStockLevel,
+                    IsActive = dto.IsActive,
+                    Sku = "SKU-" + id // We keep the existing SKU from database
+                };
+
+                var updatedProduct = await _productService.UpdateProductAsync(id, product);
+                return Ok(updatedProduct);
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteProduct(int id)
+        {
+            try
+            {
+                await _productService.DeleteProductAsync(id);
+                return NoContent();
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{id}/stock")]
+        public async Task<ActionResult<Product>> UpdateStock(int id, [FromBody] StockUpdateDto stockUpdate)
+        {
+            try
+            {
+                var product = await _productService.UpdateStockAsync(id, stockUpdate.Quantity, stockUpdate.IsAddition);
+                return Ok(product);
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
     }
 }
